@@ -566,7 +566,7 @@ static int tz_start(struct devfreq *devfreq)
 	priv->bin.last_level = devfreq->profile->max_state - 1;
 #endif
 
-	return kgsl_devfreq_add_notifier(devfreq->dev.parent, &priv->nb);
+	return 0;
 }
 
 static int tz_stop(struct devfreq *devfreq)
