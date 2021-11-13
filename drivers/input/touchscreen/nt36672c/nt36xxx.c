@@ -1007,6 +1007,7 @@ static bool nvt_cmds_panel_info(void)
 		if (!strncmp(display_node, "dsi_j20s_36_02_0a_video_display",
 					strlen("dsi_j20s_36_02_0a_video_display"))) {
 			panel_id = true;
+			panel_is_tianma = 1;
 		}
 	}
 	return panel_id;
@@ -2143,6 +2144,7 @@ static int32_t nvt_ts_probe(struct platform_device *pdev)
 		debugfs_create_file("switch_state", 0660, ts->debugfs, ts, &tpdbg_ops);
 	}
 #endif
+	nvt_cmds_panel_info();
 #ifdef CONFIG_TOUCHSCREEN_XIAOMI_TOUCHFEATURE
 	xiaomi_touch_interfaces.getModeValue = nvt_get_mode_value;
 	xiaomi_touch_interfaces.setModeValue = nvt_set_cur_value;
