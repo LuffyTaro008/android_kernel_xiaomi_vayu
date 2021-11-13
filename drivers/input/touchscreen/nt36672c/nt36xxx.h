@@ -84,6 +84,8 @@
 #define GESTURE_DOUBLE_CLICK	15
 #endif
 
+extern int touch_fw_override;
+
 /* ---ESD Protect.--- */
 #define NVT_TOUCH_ESD_PROTECT 1
 #define NVT_TOUCH_ESD_CHECK_PERIOD 125		/* ms */
