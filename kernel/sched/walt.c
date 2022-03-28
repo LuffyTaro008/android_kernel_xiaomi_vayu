@@ -2622,6 +2622,9 @@ static void _set_preferred_cluster(struct related_thread_group *grp)
 			continue;
 
 		combined_demand += p->ravg.coloc_demand;
+
+		if (combined_demand > sched_group_upmigrate)
+			break;
 	}
 
 	grp->preferred_cluster = best_cluster(grp,
