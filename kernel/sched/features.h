@@ -39,7 +39,7 @@
 
 #define SCHED_FEAT_HRTICK 0
 #define SCHED_FEAT_DOUBLE_TICK 0
-#define SCHED_FEAT_LB_BIAS 1
+#define SCHED_FEAT_LB_BIAS 0
 
 /*
  * Decrement CPU capacity based on time not spent running tasks
@@ -120,7 +120,7 @@
  */
 #define SCHED_FEAT_EAS_PREFER_IDLE 1
 #define SCHED_FEAT_FIND_BEST_TARGET 1
-#define SCHED_FEAT_FBT_STRICT_ORDER 0
+#define SCHED_FEAT_FBT_STRICT_ORDER 1
 
 /*
  * Apply schedtune boost hold to tasks of all sched classes.
