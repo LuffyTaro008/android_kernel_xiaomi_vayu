@@ -737,11 +737,15 @@ KBUILD_CFLAGS   += -Os
 else
 KBUILD_CFLAGS   += -O3
 ifeq ($(cc-name),gcc)
-KBUILD_CFLAGS	+= -mcpu=cortex-a76.cortex-a55 -mtune=cortex-a76.cortex-a55
+KBUILD_CFLAGS	+= -mcpu=cortex-a76.cortex-a55+crypto -mtune=cortex-a76.cortex-a55
 endif
 ifeq ($(cc-name),clang)
+#Enable MLGO for register allocation.
+KBUILD_CFLAGS   += -mllvm -regalloc-enable-advisor=release
+#Enable hot cold split optimization
+KBUILD_CFLAGS   += -mllvm -hot-cold-split=true
 KBUILD_CFLAGS   += -O3
-KBUILD_CFLAGS	+= -mcpu=cortex-a55 -mtune=cortex-a55
+KBUILD_CFLAGS	+= -march=armv8.2-a+dotprod -mcpu=cortex-a76+crypto+crc
 endif
 endif
 
@@ -821,6 +825,7 @@ KBUILD_CFLAGS += $(call cc-disable-warning, unused-but-set-variable)
 
 ifeq ($(ld-name),lld)
 LDFLAGS += --lto-O3
+LDFLAGS += -mllvm -regalloc-enable-advisor=release
 endif
 
 KBUILD_CFLAGS += $(call cc-disable-warning, unused-const-variable)
