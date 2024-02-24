@@ -63,6 +63,12 @@ GKI1 跟 GKI2 完全是两个东西，所以你需要自行编译内核。
 
 我们不建议你直接修改系统分区，你应该使用[模块功能](module.md) 来做修改；如果你执意要这么做，可以看看 [magisk_overlayfs](https://github.com/HuskyDG/magic_overlayfs)
 
-## KernelSU 能修改 hosts 吗，我如何使用 AdAday？
+## KernelSU 能修改 hosts 吗，我如何使用 AdAway？
 
 当然可以。但这个功能 KernelSU 没有内置，你可以安装这个 [systemless-hosts](https://github.com/symbuzzer/systemless-hosts-KernelSU-module)
+
+## 为什么有个 1T 的超大文件？
+
+1T 大小的 `modules.img` 是一个磁盘镜像文件，**不要担心它的大小**，它是一种被称之为[稀疏文件](https://en.wikipedia.org/wiki/Sparse_file)的文件格式，它的实际大小只有你使用的模块的大小，并且你在删除模块后它会动态缩小；它并不实际占用 1T 大小的磁盘空间（实际上你手机可能并没有这么多空间）。
+
+如果你真的对这个文件的大小感到不爽，你可以使用 `resize2fs -M` 命令让它变成实际大小；但此时模块可能无法正常工作，我们也不会为此提供任何支持。
