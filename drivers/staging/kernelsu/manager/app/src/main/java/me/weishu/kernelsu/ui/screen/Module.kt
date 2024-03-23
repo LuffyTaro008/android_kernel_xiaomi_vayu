@@ -40,10 +40,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.weishu.kernelsu.Natives
 import me.weishu.kernelsu.R
-import me.weishu.kernelsu.ui.component.ConfirmDialog
 import me.weishu.kernelsu.ui.component.ConfirmResult
-import me.weishu.kernelsu.ui.component.LoadingDialog
-import me.weishu.kernelsu.ui.screen.destinations.InstallScreenDestination
+import me.weishu.kernelsu.ui.component.rememberConfirmDialog
+import me.weishu.kernelsu.ui.component.rememberLoadingDialog
+import me.weishu.kernelsu.ui.screen.destinations.FlashScreenDestination
 import me.weishu.kernelsu.ui.screen.destinations.WebScreenDestination
 import me.weishu.kernelsu.ui.util.*
 import me.weishu.kernelsu.ui.viewmodel.ModuleViewModel
@@ -81,7 +81,7 @@ fun ModuleScreen(navigator: DestinationsNavigator) {
                 val data = it.data ?: return@rememberLauncherForActivityResult
                 val uri = data.data ?: return@rememberLauncherForActivityResult
 
-                navigator.navigate(InstallScreenDestination(uri))
+                navigator.navigate(FlashScreenDestination(FlashIt.FlashModule(uri)))
 
                 viewModel.markNeedRefresh()
 
@@ -100,10 +100,6 @@ fun ModuleScreen(navigator: DestinationsNavigator) {
             )
         }
     }) { innerPadding ->
-
-        ConfirmDialog()
-
-        LoadingDialog()
 
         when {
             hasMagisk -> {
@@ -127,7 +123,7 @@ fun ModuleScreen(navigator: DestinationsNavigator) {
                         .fillMaxSize(),
                     onInstallModule =
                     {
-                        navigator.navigate(InstallScreenDestination(it))
+                        navigator.navigate(FlashScreenDestination(FlashIt.FlashModule(it)))
                     }, onClickModule = { id, name, hasWebUi ->
                         if (hasWebUi) {
                             navigator.navigate(WebScreenDestination(id, name))
@@ -162,9 +158,11 @@ private fun ModuleList(
     val startDownloadingText = stringResource(R.string.module_start_downloading)
     val fetchChangeLogFailed = stringResource(R.string.module_changelog_failed)
 
-    val dialogHost = LocalDialogHost.current
     val snackBarHost = LocalSnackbarHost.current
     val context = LocalContext.current
+
+    val loadingDialog = rememberLoadingDialog()
+    val confirmDialog = rememberConfirmDialog()
 
     suspend fun onModuleUpdate(
         module: ModuleViewModel.ModuleInfo,
@@ -172,7 +170,7 @@ private fun ModuleList(
         downloadUrl: String,
         fileName: String
     ) {
-        val changelogResult = dialogHost.withLoading {
+        val changelogResult = loadingDialog.withLoading {
             withContext(Dispatchers.IO) {
                 runCatching {
                     OkHttpClient().newCall(
@@ -201,7 +199,7 @@ private fun ModuleList(
         }
 
         // changelog is not empty, show it and wait for confirm
-        val confirmResult = dialogHost.showConfirm(
+        val confirmResult = confirmDialog.awaitConfirm(
             changelogText,
             content = changelog,
             markdown = true,
@@ -232,7 +230,7 @@ private fun ModuleList(
     }
 
     suspend fun onModuleUninstall(module: ModuleViewModel.ModuleInfo) {
-        val confirmResult = dialogHost.showConfirm(
+        val confirmResult = confirmDialog.awaitConfirm(
             moduleStr,
             content = moduleUninstallConfirm.format(module.name),
             confirm = uninstall,
@@ -242,7 +240,7 @@ private fun ModuleList(
             return
         }
 
-        val success = dialogHost.withLoading {
+        val success = loadingDialog.withLoading {
             withContext(Dispatchers.IO) {
                 uninstallModule(module.id)
             }
@@ -327,7 +325,7 @@ private fun ModuleList(
                             scope.launch { onModuleUninstall(module) }
                         }, onCheckChanged = {
                             scope.launch {
-                                val success = dialogHost.withLoading {
+                                val success = loadingDialog.withLoading {
                                     withContext(Dispatchers.IO) {
                                         toggleModule(module.id, !isChecked)
                                     }
