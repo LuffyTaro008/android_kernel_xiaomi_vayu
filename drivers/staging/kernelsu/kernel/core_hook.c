@@ -1,32 +1,36 @@
-#include "linux/capability.h"
-#include "linux/cred.h"
-#include "linux/dcache.h"
-#include "linux/err.h"
-#include "linux/init.h"
-#include "linux/init_task.h"
-#include "linux/irqflags.h"
-#include "linux/kallsyms.h"
-#include "linux/kernel.h"
-#include "linux/kprobes.h"
-#include "linux/list.h"
-#include "linux/lsm_hooks.h"
-#include "linux/mm.h"
-#include "linux/mm_types.h"
-#include "linux/nsproxy.h"
-#include "linux/path.h"
-#include "linux/printk.h"
-#include "linux/sched.h"
-#include "linux/security.h"
-#include "linux/stddef.h"
-#include "linux/types.h"
-#include "linux/uaccess.h"
-#include "linux/uidgid.h"
-#include "linux/version.h"
-#include "linux/mount.h"
+#include <linux/capability.h>
+#include <linux/cred.h>
+#include <linux/dcache.h>
+#include <linux/err.h>
+#include <linux/init.h>
+#include <linux/init_task.h>
+#include <linux/kallsyms.h>
+#include <linux/kernel.h>
+#include <linux/kprobes.h>
+#include <linux/lsm_hooks.h>
+#include <linux/mm.h>
+#include <linux/nsproxy.h>
+#include <linux/path.h>
+#include <linux/printk.h>
+#include <linux/sched.h>
+#include <linux/security.h>
+#include <linux/stddef.h>
+#include <linux/types.h>
+#include <linux/uaccess.h>
+#include <linux/uidgid.h>
+#include <linux/version.h>
+#include <linux/mount.h>
 
-#include "linux/fs.h"
-#include "linux/namei.h"
-#include "linux/rcupdate.h"
+#include <linux/fs.h>
+#include <linux/namei.h>
+
+#ifdef MODULE
+#include <linux/list.h>
+#include <linux/irqflags.h>
+#include <linux/mm_types.h>
+#include <linux/rcupdate.h>
+#include <linux/vmalloc.h>
+#endif
 
 #include "allowlist.h"
 #include "arch.h"
@@ -34,10 +38,10 @@
 #include "klog.h" // IWYU pragma: keep
 #include "ksu.h"
 #include "ksud.h"
-#include "linux/vmalloc.h"
 #include "manager.h"
 #include "selinux/selinux.h"
-#include "uid_observer.h"
+#include "throne_tracker.h"
+#include "throne_tracker.h"
 #include "kernel_compat.h"
 
 static bool ksu_module_mounted = false;
@@ -199,7 +203,7 @@ int ksu_handle_rename(struct dentry *old_dentry, struct dentry *new_dentry)
 	pr_info("renameat: %s -> %s, new path: %s\n", old_dentry->d_iname,
 		new_dentry->d_iname, buf);
 
-	update_uid();
+	track_throne();
 
 	return 0;
 }
@@ -437,15 +441,13 @@ static bool should_umount(struct path *path)
 	return false;
 }
 
-static void ksu_umount_mnt(struct path *path, int flags)
+static int ksu_umount_mnt(struct path *path, int flags)
 {
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 9, 0) || defined(KSU_UMOUNT)
-	int err = path_umount(path, flags);
-	if (err) {
-		pr_info("umount %s failed: %d\n", path->dentry->d_iname, err);
-	}
+	return path_umount(path, flags);
 #else
 	// TODO: umount for non GKI kernel
+	return -ENOSYS;
 #endif
 }
 
@@ -467,7 +469,10 @@ static void try_umount(const char *mnt, bool check_mnt, int flags)
 		return;
 	}
 
-	ksu_umount_mnt(&path, flags);
+	err = ksu_umount_mnt(&path, flags);
+	if (err) {
+		pr_warn("umount %s failed: %d\n", mnt, err);
+	}
 }
 
 int ksu_handle_setuid(struct cred *new, const struct cred *old)
@@ -516,6 +521,7 @@ int ksu_handle_setuid(struct cred *new, const struct cred *old)
 			current->pid);
 		return 0;
 	}
+#ifdef CONFIG_KSU_DEBUG
 	// umount the target mnt
 	// pr_info("handle umount for uid: %d, pid: %d\n", new_uid.val,current->pid);
 
@@ -537,11 +543,7 @@ int ksu_handle_setuid(struct cred *new, const struct cred *old)
 
 static int handler_pre(struct kprobe *p, struct pt_regs *regs)
 {
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 16, 0)
-	struct pt_regs *real_regs = (struct pt_regs *)PT_REGS_PARM1(regs);
-#else
-	struct pt_regs *real_regs = regs;
-#endif
+	struct pt_regs *real_regs = PT_REAL_REGS(regs);
 	int option = (int)PT_REGS_PARM1(real_regs);
 	unsigned long arg2 = (unsigned long)PT_REGS_PARM2(real_regs);
 	unsigned long arg3 = (unsigned long)PT_REGS_PARM3(real_regs);
@@ -613,7 +615,7 @@ static int ksu_task_prctl(int option, unsigned long arg2, unsigned long arg3,
 	return -ENOSYS;
 }
 // kernel 4.4 and 4.9
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 10, 0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 10, 0) || defined(CONFIG_IS_HW_HISI)
 static int ksu_key_permission(key_ref_t key_ref, const struct cred *cred,
 			      unsigned perm)
 {
@@ -646,7 +648,7 @@ static struct security_hook_list ksu_hooks[] = {
 	LSM_HOOK_INIT(task_prctl, ksu_task_prctl),
 	LSM_HOOK_INIT(inode_rename, ksu_inode_rename),
 	LSM_HOOK_INIT(task_fix_setuid, ksu_task_fix_setuid),
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 10, 0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 10, 0) || defined(CONFIG_IS_HW_HISI)
 	LSM_HOOK_INIT(key_permission, ksu_key_permission)
 #endif
 };
@@ -836,5 +838,9 @@ void __init ksu_core_init(void)
 
 void ksu_core_exit(void)
 {
-	pr_info("ksu_kprobe_exit\n");
+#ifdef CONFIG_KPROBES
+	pr_info("ksu_core_kprobe_exit\n");
+	// we dont use this now
+	// ksu_kprobe_exit();
+#endif
 }
