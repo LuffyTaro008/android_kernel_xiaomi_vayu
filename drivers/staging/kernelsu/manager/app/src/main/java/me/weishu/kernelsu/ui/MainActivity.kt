@@ -37,8 +37,11 @@ class MainActivity : ComponentActivity() {
             KernelSUTheme {
                 val navController = rememberAnimatedNavController()
                 val snackbarHostState = remember { SnackbarHostState() }
+                val navBackStackEntry by navController.currentBackStackEntryAsState()
+                val route = navBackStackEntry?.destination?.route
+                val showBottomBar = route == null || !route.startsWith("web_screen")
                 Scaffold(
-                    bottomBar = { BottomBar(navController) },
+                    bottomBar = { if (showBottomBar) BottomBar(navController) },
                     snackbarHost = { SnackbarHost(snackbarHostState) }
                 ) { innerPadding ->
                     CompositionLocalProvider(

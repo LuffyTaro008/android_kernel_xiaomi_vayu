@@ -1,20 +1,18 @@
-#include <linux/err.h>
-#include <linux/fs.h>
-#include <linux/list.h>
-#include <linux/slab.h>
-#include <linux/string.h>
-#include <linux/types.h>
-#include <linux/version.h>
-#include <linux/workqueue.h>
+#include "linux/err.h"
+#include "linux/fs.h"
+#include "linux/list.h"
+#include "linux/slab.h"
+#include "linux/string.h"
+#include "linux/types.h"
+#include "linux/version.h"
+#include "linux/workqueue.h"
 
 #include "allowlist.h"
 #include "klog.h" // IWYU pragma: keep
 #include "ksu.h"
 #include "manager.h"
-#include "throne_tracker.h"
+#include "uid_observer.h"
 #include "kernel_compat.h"
-
-uid_t ksu_manager_uid = KSU_INVALID_UID;
 
 #define SYSTEM_PACKAGES_LIST_PATH "/data/system/packages.list"
 static struct work_struct ksu_update_uid_work;
@@ -34,8 +32,7 @@ static int get_pkg_from_apk_path(char *pkg, const char *path)
 	const char *last_slash = NULL;
 	const char *second_last_slash = NULL;
 
-	int i;
-	for (i = len - 1; i >= 0; i--) {
+	for (int i = len - 1; i >= 0; i--) {
 		if (path[i] == '/') {
 			if (!last_slash) {
 				last_slash = &path[i];
@@ -74,14 +71,6 @@ static void crown_manager(const char *apk, struct list_head *uid_data)
 
 	pr_info("manager pkg: %s\n", pkg);
 
-#ifdef KSU_MANAGER_PACKAGE
-	// pkg is `/<real package>`
-	if (strncmp(pkg, KSU_MANAGER_PACKAGE, sizeof(KSU_MANAGER_PACKAGE))) {
-		pr_info("manager package is inconsistent with kernel build: %s\n",
-			KSU_MANAGER_PACKAGE);
-		return;
-	}
-#endif
 	struct list_head *list = (struct list_head *)uid_data;
 	struct uid_data *np;
 
@@ -120,26 +109,25 @@ FILLDIR_RETURN_TYPE my_actor(struct dir_context *ctx, const char *name,
 	struct my_dir_context *my_ctx =
 		container_of(ctx, struct my_dir_context, ctx);
 	struct file *file;
-	char dirpath[384]; // 384 is enough for /data/app/<package>/base.apk
+	char *dirpath;
 
 	if (!my_ctx) {
 		pr_err("Invalid context\n");
 		return FILLDIR_ACTOR_STOP;
 	}
 	if (my_ctx->stop && *my_ctx->stop) {
-		pr_info("Stop searching\n");
 		return FILLDIR_ACTOR_STOP;
 	}
 
 	if (!strncmp(name, "..", namelen) || !strncmp(name, ".", namelen))
 		return FILLDIR_ACTOR_CONTINUE; // Skip "." and ".."
 
-	if (snprintf(dirpath, sizeof(dirpath), "%s/%.*s", my_ctx->parent_dir,
-		     namelen, name) >= sizeof(dirpath)) {
-		pr_err("Path too long: %s/%.*s\n", my_ctx->parent_dir, namelen,
-		       name);
-		return FILLDIR_ACTOR_CONTINUE;
+	dirpath = kmalloc(PATH_MAX, GFP_KERNEL);
+	if (!dirpath) {
+		return FILLDIR_ACTOR_STOP; // Failed to obtain directory path
 	}
+	snprintf(dirpath, PATH_MAX, "%s/%.*s", my_ctx->parent_dir, namelen,
+		 name);
 
 	if (d_type == DT_DIR && my_ctx->depth > 0 &&
 	    (my_ctx->stop && !*my_ctx->stop)) {
@@ -149,17 +137,19 @@ FILLDIR_RETURN_TYPE my_actor(struct dir_context *ctx, const char *name,
 							  my_ctx->private_data,
 						  .depth = my_ctx->depth - 1,
 						  .stop = my_ctx->stop };
-		file = ksu_filp_open_compat(dirpath, O_RDONLY | O_NOFOLLOW, 0);
+		file = ksu_filp_open_compat(dirpath, O_RDONLY, 0);
 		if (IS_ERR(file)) {
 			pr_err("Failed to open directory: %s, err: %ld\n",
 			       dirpath, PTR_ERR(file));
-			return FILLDIR_ACTOR_CONTINUE;
+			kfree(dirpath);
+			return FILLDIR_ACTOR_STOP;
 		}
 
 		iterate_dir(file, &sub_ctx.ctx);
 		filp_close(file, NULL);
 	} else {
-		if ((namelen == 8) && (strncmp(name, "base.apk", namelen) == 0)) {
+		if ((strlen(name) == strlen("base.apk")) &&
+		    (strncmp(name, "base.apk", strlen("base.apk")) == 0)) {
 			bool is_manager = is_manager_apk(dirpath);
 			pr_info("Found base.apk at path: %s, is_manager: %d\n",
 				dirpath, is_manager);
@@ -168,6 +158,7 @@ FILLDIR_RETURN_TYPE my_actor(struct dir_context *ctx, const char *name,
 				*my_ctx->stop = 1;
 			}
 		}
+		kfree(dirpath);
 	}
 
 	return FILLDIR_ACTOR_CONTINUE;
@@ -183,7 +174,7 @@ void search_manager(const char *path, int depth, struct list_head *uid_data)
 				      .depth = depth,
 				      .stop = &stop };
 
-	file = ksu_filp_open_compat(path, O_RDONLY | O_NOFOLLOW, 0);
+	file = ksu_filp_open_compat(path, O_RDONLY, 0);
 	if (IS_ERR(file)) {
 		pr_err("Failed to open directory: %s\n", path);
 		return;
@@ -241,7 +232,6 @@ static void do_update_uid(struct work_struct *work)
 		struct uid_data *data =
 			kzalloc(sizeof(struct uid_data), GFP_ATOMIC);
 		if (!data) {
-			filp_close(fp, 0);
 			goto out;
 		}
 
@@ -265,7 +255,6 @@ static void do_update_uid(struct work_struct *work)
 		// reset line start
 		line_start = pos;
 	}
-	filp_close(fp, 0);
 
 	// now update uid list
 	struct uid_data *np;
@@ -290,7 +279,6 @@ static void do_update_uid(struct work_struct *work)
 		}
 		pr_info("Searching manager...\n");
 		search_manager("/data/app", 2, &uid_list);
-		pr_info("Search manager finished\n");
 	}
 
 	// then prune the allowlist
@@ -301,19 +289,21 @@ out:
 		list_del(&np->list);
 		kfree(np);
 	}
+	filp_close(fp, 0);
 }
 
-void track_throne()
+void update_uid()
 {
 	ksu_queue_work(&ksu_update_uid_work);
 }
 
-void ksu_throne_tracker_init()
+int ksu_uid_observer_init()
 {
 	INIT_WORK(&ksu_update_uid_work, do_update_uid);
+	return 0;
 }
 
-void ksu_throne_tracker_exit()
+int ksu_uid_observer_exit()
 {
-	// nothing to do
+	return 0;
 }
