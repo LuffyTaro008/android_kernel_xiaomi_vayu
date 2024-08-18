@@ -183,7 +183,7 @@ private fun AppProfileInner(
                     } else {
                         Mode.Custom
                     }
-                    var mode by rememberSaveable {
+                    var mode by remember {
                         mutableStateOf(initialMode)
                     }
                     ProfileBox(mode, true) {

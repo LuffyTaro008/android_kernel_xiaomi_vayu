@@ -1,6 +1,4 @@
-#include "linux/export.h"
 #include "linux/fs.h"
-#include "linux/kobject.h"
 #include "linux/module.h"
 #include "linux/workqueue.h"
 
@@ -60,11 +58,6 @@ int __init kernelsu_init(void)
 	ksu_enable_ksud();
 #endif
 
-#ifdef MODULE
-#ifndef CONFIG_KSU_DEBUG
-	kobject_del(&THIS_MODULE->mkobj.kobj);
-#endif
-#endif
 	return 0;
 }
 

@@ -22,15 +22,11 @@ fun getBugreportFile(context: Context): File {
     val tombstonesFile = File(bugreportDir, "tombstones.tar.gz")
     val dropboxFile = File(bugreportDir, "dropbox.tar.gz")
     val pstoreFile = File(bugreportDir, "pstore.tar.gz")
-    // Xiaomi/Readmi devices have diag in /data/vendor/diag
     val diagFile = File(bugreportDir, "diag.tar.gz")
-    val opulsFile = File(bugreportDir, "opuls.tar.gz")
     val bootlogFile = File(bugreportDir, "bootlog.tar.gz")
     val mountsFile = File(bugreportDir, "mounts.txt")
     val fileSystemsFile = File(bugreportDir, "filesystems.txt")
-    val adbFileTree = File(bugreportDir, "adb_tree.txt")
-    val adbFileDetails = File(bugreportDir, "adb_details.txt")
-    val ksuFileSize = File(bugreportDir, "ksu_size.txt")
+    val ksuFileTree = File(bugreportDir, "ksu_tree.txt")
     val appListFile = File(bugreportDir, "packages.txt")
     val propFile = File(bugreportDir, "props.txt")
     val allowListFile = File(bugreportDir, "allowlist.bin")
@@ -38,7 +34,7 @@ fun getBugreportFile(context: Context): File {
     val bootConfig = File(bugreportDir, "boot_config.txt")
     val kernelConfig = File(bugreportDir, "defconfig.gz")
 
-    val shell = getRootShell(true)
+    val shell = getRootShell()
 
     shell.newJob().add("dmesg > ${dmesgFile.absolutePath}").exec()
     shell.newJob().add("logcat -d > ${logcatFile.absolutePath}").exec()
@@ -46,14 +42,11 @@ fun getBugreportFile(context: Context): File {
     shell.newJob().add("tar -czf ${dropboxFile.absolutePath} -C /data/system/dropbox .").exec()
     shell.newJob().add("tar -czf ${pstoreFile.absolutePath} -C /sys/fs/pstore .").exec()
     shell.newJob().add("tar -czf ${diagFile.absolutePath} -C /data/vendor/diag .").exec()
-    shell.newJob().add("tar -czf ${opulsFile.absolutePath} -C /mnt/oplus/op2/media/log/boot_log/ .").exec()
     shell.newJob().add("tar -czf ${bootlogFile.absolutePath} -C /data/adb/ksu/log .").exec()
 
     shell.newJob().add("cat /proc/1/mountinfo > ${mountsFile.absolutePath}").exec()
     shell.newJob().add("cat /proc/filesystems > ${fileSystemsFile.absolutePath}").exec()
-    shell.newJob().add("busybox tree /data/adb > ${adbFileTree.absolutePath}").exec()
-    shell.newJob().add("ls -alRZ /data/adb > ${adbFileDetails.absolutePath}").exec()
-    shell.newJob().add("du -sh /data/adb/ksu/* > ${ksuFileSize.absolutePath}").exec()
+    shell.newJob().add("ls -alRZ /data/adb > ${ksuFileTree.absolutePath}").exec()
     shell.newJob().add("cp /data/system/packages.list ${appListFile.absolutePath}").exec()
     shell.newJob().add("getprop > ${propFile.absolutePath}").exec()
     shell.newJob().add("cp /data/adb/ksu/.allowlist ${allowListFile.absolutePath}").exec()
@@ -89,8 +82,6 @@ fun getBugreportFile(context: Context): File {
         pw.println("KernelSU: $ksuKernel")
         val safeMode = Natives.isSafeMode
         pw.println("SafeMode: $safeMode")
-        val lkmMode = Natives.isLkmMode
-        pw.println("LKM: $lkmMode")
     }
 
     // modules

@@ -40,7 +40,7 @@ static char __user *sh_user_path(void)
 }
 
 int ksu_handle_faccessat(int *dfd, const char __user **filename_user, int *mode,
-			 int * __unused_flags)
+			 int *flags)
 {
 	const char su[] = SU_PATH;
 
@@ -75,8 +75,7 @@ int ksu_handle_stat(int *dfd, const char __user **filename_user, int *flags)
 
 	char path[sizeof(su) + 1];
 	memset(path, 0, sizeof(path));
-// Remove this later!! we use syscall hook, so this will never happen!!!!!
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 18, 0) && 0
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 18, 0)
 	// it becomes a `struct filename *` after 5.18
 	// https://elixir.bootlin.com/linux/v5.18/source/fs/stat.c#L216
 	const char sh[] = SH_PATH;
@@ -132,7 +131,7 @@ int ksu_handle_execveat_sucompat(int *fd, struct filename **filename_ptr,
 
 #ifdef CONFIG_KPROBES
 
-__maybe_unused static int faccessat_handler_pre(struct kprobe *p, struct pt_regs *regs)
+static int faccessat_handler_pre(struct kprobe *p, struct pt_regs *regs)
 {
 	int *dfd = (int *)PT_REGS_PARM1(regs);
 	const char __user **filename_user = (const char **)&PT_REGS_PARM2(regs);
@@ -143,21 +142,7 @@ __maybe_unused static int faccessat_handler_pre(struct kprobe *p, struct pt_regs
 	return ksu_handle_faccessat(dfd, filename_user, mode, flags);
 }
 
-static int sys_faccessat_handler_pre(struct kprobe *p, struct pt_regs *regs)
-{
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 16, 0)
-	struct pt_regs *real_regs = (struct pt_regs *)PT_REGS_PARM1(regs);
-#else
-	struct pt_regs *real_regs = regs;
-#endif
-	int *dfd = (int *)PT_REGS_PARM1(real_regs);
-	const char __user **filename_user = (const char **)&PT_REGS_PARM2(real_regs);
-	int *mode = (int *)&PT_REGS_PARM3(real_regs);
-
-	return ksu_handle_faccessat(dfd, filename_user, mode, NULL);
-}
-
-__maybe_unused static int newfstatat_handler_pre(struct kprobe *p, struct pt_regs *regs)
+static int newfstatat_handler_pre(struct kprobe *p, struct pt_regs *regs)
 {
 	int *dfd = (int *)&PT_REGS_PARM1(regs);
 	const char __user **filename_user = (const char **)&PT_REGS_PARM2(regs);
@@ -172,20 +157,6 @@ __maybe_unused static int newfstatat_handler_pre(struct kprobe *p, struct pt_reg
 	return ksu_handle_stat(dfd, filename_user, flags);
 }
 
-static int sys_newfstatat_handler_pre(struct kprobe *p, struct pt_regs *regs)
-{
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 16, 0)
-	struct pt_regs *real_regs = (struct pt_regs *)PT_REGS_PARM1(regs);
-#else
-	struct pt_regs *real_regs = regs;
-#endif
-	int *dfd = (int *)&PT_REGS_PARM1(real_regs);
-	const char __user **filename_user = (const char **)&PT_REGS_PARM2(real_regs);
-	int *flags = (int *)&PT_REGS_SYSCALL_PARM4(real_regs);
-
-	return ksu_handle_stat(dfd, filename_user, flags);
-}
-
 // https://elixir.bootlin.com/linux/v5.10.158/source/fs/exec.c#L1864
 static int execve_handler_pre(struct kprobe *p, struct pt_regs *regs)
 {
@@ -196,12 +167,6 @@ static int execve_handler_pre(struct kprobe *p, struct pt_regs *regs)
 	return ksu_handle_execveat_sucompat(fd, filename_ptr, NULL, NULL, NULL);
 }
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
-static struct kprobe faccessat_kp = {
-	.symbol_name = SYS_FACCESSAT_SYMBOL,
-	.pre_handler = sys_faccessat_handler_pre,
-};
-#else
 static struct kprobe faccessat_kp = {
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 17, 0)
 	.symbol_name = "do_faccessat",
@@ -210,14 +175,7 @@ static struct kprobe faccessat_kp = {
 #endif
 	.pre_handler = faccessat_handler_pre,
 };
-#endif
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
-static struct kprobe newfstatat_kp = {
-	.symbol_name = SYS_NEWFSTATAT_SYMBOL,
-	.pre_handler = sys_newfstatat_handler_pre,
-};
-#else
 static struct kprobe newfstatat_kp = {
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 11, 0)
 	.symbol_name = "vfs_statx",
@@ -226,7 +184,6 @@ static struct kprobe newfstatat_kp = {
 #endif
 	.pre_handler = newfstatat_handler_pre,
 };
-#endif
 
 static struct kprobe execve_kp = {
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 9, 0)
