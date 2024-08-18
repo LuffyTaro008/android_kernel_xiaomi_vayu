@@ -37,13 +37,6 @@ enum Commands {
     /// Install KernelSU userspace component to system
     Install,
 
-    /// Uninstall KernelSU modules and itself(LKM Only)
-    Uninstall {
-        /// magiskboot path, if not specified, will search from $PATH
-        #[arg(long, default_value = None)]
-        magiskboot: Option<PathBuf>,
-    },
-
     /// SELinux policy Patch tool
     Sepolicy {
         #[command(subcommand)]
@@ -86,28 +79,13 @@ enum Commands {
         #[arg(short, long, default_value = None)]
         out: Option<PathBuf>,
 
-        /// magiskboot path, if not specified, will search from $PATH
+        /// magiskboot path, if not specified, will use builtin one
         #[arg(long, default_value = None)]
         magiskboot: Option<PathBuf>,
 
         /// KMI version, if specified, will use the specified KMI
         #[arg(long, default_value = None)]
         kmi: Option<String>,
-    },
-
-    /// Restore boot or init_boot images patched by KernelSU
-    BootRestore {
-        /// boot image path, if not specified, will try to find the boot image automatically
-        #[arg(short, long)]
-        boot: Option<PathBuf>,
-
-        /// Flash it to boot partition after patch
-        #[arg(short, long, default_value = "false")]
-        flash: bool,
-
-        /// magiskboot path, if not specified, will search from $PATH
-        #[arg(long, default_value = None)]
-        magiskboot: Option<PathBuf>,
     },
 
     /// Show boot information
@@ -308,7 +286,6 @@ pub fn run() -> Result<()> {
             }
         }
         Commands::Install => utils::install(),
-        Commands::Uninstall { magiskboot } => utils::uninstall(magiskboot),
         Commands::Sepolicy { command } => match command {
             Sepolicy::Patch { sepolicy } => crate::sepolicy::live_patch(&sepolicy),
             Sepolicy::Apply { file } => crate::sepolicy::apply_file(file),
@@ -375,11 +352,6 @@ pub fn run() -> Result<()> {
                 return Ok(());
             }
         },
-        Commands::BootRestore {
-            boot,
-            magiskboot,
-            flash,
-        } => crate::boot_patch::restore(boot, magiskboot, flash),
     };
 
     if let Err(e) = &result {

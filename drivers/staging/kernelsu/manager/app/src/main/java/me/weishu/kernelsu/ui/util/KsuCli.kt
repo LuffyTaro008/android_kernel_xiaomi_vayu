@@ -41,13 +41,6 @@ fun getRootShell(globalMnt: Boolean = false): Shell {
     }
 }
 
-inline fun <T> withNewRootShell(
-    globalMnt: Boolean = false,
-    block: Shell.() -> T
-): T {
-    return createRootShell(globalMnt).use(block)
-}
-
 fun createRootShell(globalMnt: Boolean = false): Shell {
     Shell.enableVerboseLogging = BuildConfig.DEBUG
     val builder = Shell.Builder.create()
@@ -58,33 +51,19 @@ fun createRootShell(globalMnt: Boolean = false): Shell {
             builder.build(getKsuDaemonPath(), "debug", "su")
         }
     } catch (e: Throwable) {
-        Log.w(TAG, "ksu failed: ", e)
-        try {
-            if (globalMnt) {
-                builder.build("su")
-            } else {
-                builder.build("su", "-mm")
-            }
-        } catch (e: Throwable) {
-            Log.e(TAG, "su failed: ", e)
-            builder.build("sh")
-        }
+        Log.e(TAG, "su failed: ", e)
+        builder.build("sh")
     }
 }
 
-fun execKsud(args: String, newShell: Boolean = false): Boolean {
-    return if (newShell) {
-        withNewRootShell {
-            ShellUtils.fastCmdResult(this, "${getKsuDaemonPath()} $args")
-        }
-    } else {
-        ShellUtils.fastCmdResult(getRootShell(), "${getKsuDaemonPath()} $args")
-    }
+fun execKsud(args: String): Boolean {
+    val shell = getRootShell()
+    return ShellUtils.fastCmdResult(shell, "${getKsuDaemonPath()} $args")
 }
 
 fun install() {
     val start = SystemClock.elapsedRealtime()
-    val result = execKsud("install", true)
+    val result = execKsud("install")
     Log.w(TAG, "install result: $result, cost: ${SystemClock.elapsedRealtime() - start}ms")
 }
 
@@ -114,46 +93,20 @@ fun toggleModule(id: String, enable: Boolean): Boolean {
     } else {
         "module disable $id"
     }
-    val result = execKsud(cmd, true)
+    val result = execKsud(cmd)
     Log.i(TAG, "$cmd result: $result")
     return result
 }
 
 fun uninstallModule(id: String): Boolean {
     val cmd = "module uninstall $id"
-    val result = execKsud(cmd, true)
+    val result = execKsud(cmd)
     Log.i(TAG, "uninstall module $id result: $result")
     return result
 }
 
-private fun flashWithIO(
-    cmd: String,
-    onStdout: (String) -> Unit,
-    onStderr: (String) -> Unit
-): Shell.Result {
-
-    val stdoutCallback: CallbackList<String?> = object : CallbackList<String?>() {
-        override fun onAddElement(s: String?) {
-            onStdout(s ?: "")
-        }
-    }
-
-    val stderrCallback: CallbackList<String?> = object : CallbackList<String?>() {
-        override fun onAddElement(s: String?) {
-            onStderr(s ?: "")
-        }
-    }
-
-    return withNewRootShell {
-        newJob().add(cmd).to(stdoutCallback, stderrCallback).exec()
-    }
-}
-
-fun flashModule(
-    uri: Uri,
-    onFinish: (Boolean, Int) -> Unit,
-    onStdout: (String) -> Unit,
-    onStderr: (String) -> Unit
+fun installModule(
+    uri: Uri, onFinish: (Boolean) -> Unit, onStdout: (String) -> Unit, onStderr: (String) -> Unit
 ): Boolean {
     val resolver = ksuApp.contentResolver
     with(resolver.openInputStream(uri)) {
@@ -162,40 +115,35 @@ fun flashModule(
             this?.copyTo(output)
         }
         val cmd = "module install ${file.absolutePath}"
-        val result = flashWithIO("${getKsuDaemonPath()} $cmd", onStdout, onStderr)
+
+        val shell = createRootShell()
+
+        val stdoutCallback: CallbackList<String?> = object : CallbackList<String?>() {
+            override fun onAddElement(s: String?) {
+                onStdout(s ?: "")
+            }
+        }
+
+        val stderrCallback: CallbackList<String?> = object : CallbackList<String?>() {
+            override fun onAddElement(s: String?) {
+                onStderr(s ?: "")
+            }
+        }
+
+        val result =
+            shell.newJob().add("${getKsuDaemonPath()} $cmd").to(stdoutCallback, stderrCallback)
+                .exec()
         Log.i("KernelSU", "install module $uri result: $result")
 
         file.delete()
 
-        onFinish(result.isSuccess, result.code)
+        onFinish(result.isSuccess)
         return result.isSuccess
     }
 }
 
-fun restoreBoot(
-    onFinish: (Boolean, Int) -> Unit, onStdout: (String) -> Unit, onStderr: (String) -> Unit
-): Boolean {
-    val magiskboot = File(ksuApp.applicationInfo.nativeLibraryDir, "libmagiskboot.so")
-    val result = flashWithIO("${getKsuDaemonPath()} boot-restore -f --magiskboot $magiskboot", onStdout, onStderr)
-    onFinish(result.isSuccess, result.code)
-    return result.isSuccess
-}
-
-fun uninstallPermanently(
-    onFinish: (Boolean, Int) -> Unit, onStdout: (String) -> Unit, onStderr: (String) -> Unit
-): Boolean {
-    val magiskboot = File(ksuApp.applicationInfo.nativeLibraryDir, "libmagiskboot.so")
-    val result = flashWithIO("${getKsuDaemonPath()} uninstall --magiskboot $magiskboot", onStdout, onStderr)
-    onFinish(result.isSuccess, result.code)
-    return result.isSuccess
-}
-
-suspend fun shrinkModules(): Boolean = withContext(Dispatchers.IO) {
-    execKsud("module shrink", true)
-}
-
 @Parcelize
-sealed class LkmSelection : Parcelable {
+sealed class LkmSelection: Parcelable {
     data class LkmUri(val uri: Uri) : LkmSelection()
     data class KmiString(val value: String) : LkmSelection()
     data object KmiNone : LkmSelection()
@@ -205,7 +153,7 @@ fun installBoot(
     bootUri: Uri?,
     lkm: LkmSelection,
     ota: Boolean,
-    onFinish: (Boolean, Int) -> Unit,
+    onFinish: (Boolean) -> Unit,
     onStdout: (String) -> Unit,
     onStderr: (String) -> Unit,
 ): Boolean {
@@ -264,14 +212,29 @@ fun installBoot(
         Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
     cmd += " -o $downloadsDir"
 
-    val result = flashWithIO("${getKsuDaemonPath()} $cmd", onStdout, onStderr)
+    val shell = createRootShell()
+
+    val stdoutCallback: CallbackList<String?> = object : CallbackList<String?>() {
+        override fun onAddElement(s: String?) {
+            onStdout(s ?: "")
+        }
+    }
+
+    val stderrCallback: CallbackList<String?> = object : CallbackList<String?>() {
+        override fun onAddElement(s: String?) {
+            onStderr(s ?: "")
+        }
+    }
+
+    val result =
+        shell.newJob().add("${getKsuDaemonPath()} $cmd").to(stdoutCallback, stderrCallback).exec()
     Log.i("KernelSU", "install boot result: ${result.isSuccess}")
 
     bootFile?.delete()
     lkmFile?.delete()
 
     // if boot uri is empty, it is direct install, when success, we should show reboot button
-    onFinish(bootUri == null && result.isSuccess, result.code)
+    onFinish(bootUri == null && result.isSuccess)
     return result.isSuccess
 }
 
@@ -377,9 +340,7 @@ fun getAppProfileTemplate(id: String): String {
 
 fun setAppProfileTemplate(id: String, template: String): Boolean {
     val shell = getRootShell()
-    val escapedTemplate = template.replace("\"", "\\\"")
-    val cmd = """${getKsuDaemonPath()} profile set-template "$id" "$escapedTemplate'""""
-    return shell.newJob().add(cmd)
+    return shell.newJob().add("${getKsuDaemonPath()} profile set-template '${id}' '${template}'")
         .to(ArrayList(), null).exec().isSuccess
 }
 
@@ -399,9 +360,7 @@ fun launchApp(packageName: String) {
 
     val shell = getRootShell()
     val result =
-        shell.newJob()
-            .add("cmd package resolve-activity --brief $packageName | tail -n 1 | xargs cmd activity start-activity -n")
-            .exec()
+        shell.newJob().add("monkey -p $packageName -c android.intent.category.LAUNCHER 1").exec()
     Log.i(TAG, "launch $packageName result: $result")
 }
 

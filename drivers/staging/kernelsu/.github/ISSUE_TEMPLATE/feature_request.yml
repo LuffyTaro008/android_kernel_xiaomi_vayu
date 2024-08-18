@@ -2,6 +2,7 @@ name: Feature Request
 description: "Suggest an idea for this project"
 title: "[Feature]"
 labels: "feature"
+assignees: tiann
 body:
   - type: markdown
     id: feature-info
