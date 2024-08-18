@@ -449,7 +449,6 @@ void subsystem_put_local(void *sub_system_handle)
 	return subsystem_put(sub_system_handle);
 }
 
-#ifdef CONFIG_DEBUG_FS
 /* -------------------------------------------------------------------------
  * Functions - Log
  * -------------------------------------------------------------------------
@@ -496,4 +495,3 @@ void npu_process_log_message(struct npu_device *npu_dev, uint32_t *message,
 	/* mutex log unlock */
 	mutex_unlock(&debugfs->log_lock);
 }
-#endif
