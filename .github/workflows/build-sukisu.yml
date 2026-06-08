@@ -1,0 +1,111 @@
+name: SukiSU Ultra Kernel Build for POCO X3 Pro (LuffyTaro008)
+
+on:
+  workflow_dispatch:
+    inputs:
+      kernel_repo:
+        description: 'Kernel Git Repository'
+        required: true
+        default: 'https://github.com/LuffyTaro008/android_kernel_xiaomi_vayu'
+      kernel_branch:
+        description: 'Kernel Branch'
+        required: true
+        default: '13'
+      kernel_defconfig:
+        description: 'Kernel defconfig file (find via "find . -name "*vayu*defconfig")'
+        required: true
+        default: 'defconfig'
+      sukisu_branch:
+        description: 'SukiSU Ultra Branch (nongki for 4.14, main for GKI)'
+        required: true
+        default: 'nongki'
+      enable_susfs:
+        description: 'Enable SUSFS (advanced root hiding)'
+        required: true
+        default: false
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    steps:
+      - name: Install build dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y \
+            git make bc bison flex libssl-dev libelf-dev \
+            build-essential lzop cpio device-tree-compiler python3 \
+            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
+            clang-14 lld-14 llvm-14 python2 lz4
+          sudo ln -sf /usr/bin/python2 /usr/bin/python
+
+      - name: Clone kernel source
+        run: |
+          git clone --depth 1 ${{ github.event.inputs.kernel_repo }} -b ${{ github.event.inputs.kernel_branch }} kernel
+          cd kernel
+          echo "Kernel source cloned"
+
+      - name: Integrate SukiSU Ultra
+        run: |
+          cd kernel
+          if [ "${{ github.event.inputs.enable_susfs }}" == "true" ]; then
+            curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/susfs-stable/kernel/setup.sh" | bash -s ${{ github.event.inputs.sukisu_branch }}
+          else
+            curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s ${{ github.event.inputs.sukisu_branch }}
+          fi
+          rm -rf KernelSU/.git
+
+      - name: Configure kernel
+        run: |
+          cd kernel
+          make ${{ github.event.inputs.kernel_defconfig }}
+          # Disable problematic features
+          scripts/config --disable CONFIG_HID_TRACE
+          scripts/config --disable CONFIG_HID_DEBUG
+          scripts/config --disable CONFIG_HUGETLBFS
+          scripts/config --disable CONFIG_HUGETLB_PAGE
+          scripts/config --disable CONFIG_PERF_EVENTS
+          scripts/config --disable CONFIG_DEVFREQ_GOV_MSM_MEMLAT
+          scripts/config --disable CONFIG_ARM_MEMLAT_MON
+          scripts/config --disable CONFIG_DEBUG_INFO
+          # Enable required SukiSU features
+          scripts/config --enable CONFIG_KSU_MANUAL_HOOK
+          scripts/config --enable CONFIG_KALLSYMS
+          scripts/config --enable CONFIG_KALLSYMS_ALL
+          scripts/config --enable CONFIG_KPM
+          make olddefconfig
+
+      - name: Build kernel image
+        run: |
+          cd kernel
+          make -j$(nproc) \
+            CC=clang-14 \
+            LD=ld.lld-14 \
+            AR=llvm-ar-14 \
+            NM=llvm-nm-14 \
+            OBJCOPY=llvm-objcopy-14 \
+            Image
+
+      - name: Locate and copy kernel image
+        run: |
+          cd kernel
+          if [ -f arch/arm64/boot/Image ]; then
+            cp arch/arm64/boot/Image ../Image.gz-dtb
+          else
+            echo "ERROR: Kernel image not found!"
+            exit 1
+          fi
+
+      - name: Package kernel with AnyKernel3
+        run: |
+          git clone https://github.com/osm0sis/AnyKernel3 -b master AnyKernel3
+          cp Image.gz-dtb AnyKernel3/
+          cd AnyKernel3
+          zip -r9 "SukiSU_vayu_$(date +%Y%m%d_%H%M%S).zip" . -x ".git*"
+
+      - name: Upload kernel zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: SukiSU_Kernel_vayu
+          path: AnyKernel3/*.zip
+          retention-days: 7
